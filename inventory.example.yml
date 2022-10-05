@@ -1,0 +1,3 @@
+## Example inventory file
+## Set vars in ansible vault
+TEMPHOST ansible_user="{{temphostuser}}" ansible_become_password="{{temphostpass}}" ansible_password="{{temphostpass}}" ansible_ssh_common_args='-o StrictHostKeyChecking=no'
