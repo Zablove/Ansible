@@ -1,0 +1,8 @@
+---
+# tasks file for zabbix
+- name: Install packages
+  yum:
+    name: zabbix-agent
+    state: latest
+    update_cache:
+

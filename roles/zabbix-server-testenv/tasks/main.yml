@@ -1,0 +1,91 @@
+---
+# tasks file for installing zabbix server at Debian 11
+# playbook to create quick testing environment. Single server
+# with mysql and default password settings.
+# NOT SECURE and not suitable for production environment
+
+- name: Update all packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+- name: Install tools
+  apt:
+    pkg:
+    - mariadb-server
+    - python3-mysqldb
+- name: Check if reboot required
+  stat:
+    path: /var/run/reboot-required
+  register: reboot_required_file
+- name: Reboot server after updates
+  reboot:
+  when: reboot_required_file.stat.exists == true
+## Change locale settings if needed or skip this step
+## Added because Debian Cloud image lacks this setting and Zabbix need it
+- name: Set locale settings
+  locale_gen:
+    name: en_US.UTF-8
+    state: present
+- name: Add zabbix repo
+  apt: 
+    deb: https://repo.zabbix.com/zabbix/6.2/debian/pool/main/z/zabbix-release/zabbix-release_6.2-2%2Bdebian11_all.deb
+  when: zabbixversion == "6.2"
+- name: Add zabbix repo
+  apt: 
+    deb: https://repo.zabbix.com/zabbix/6.0/debian/pool/main/z/zabbix-release/zabbix-release_6.0-4%2Bdebian11_all.deb
+  when: zabbixversion == "6"
+- name: Install zabbix
+  apt:
+    update_cache: yes
+    pkg:
+    - zabbix-server-mysql
+    - zabbix-frontend-php
+    - zabbix-apache-conf
+    - zabbix-agent
+    - zabbix-sql-scripts
+- name: Create database
+  mysql_db:
+    name: zabbix
+    state: present
+    collation: utf8_bin
+    encoding: utf8
+    login_unix_socket: /run/mysqld/mysqld.sock
+## Change password if needed
+- name: Add zabbix db user and rights
+  mysql_user:
+    name: zabbix
+    password: zabbix
+    priv: 'zabbix.*:ALL'
+    state: present
+    login_unix_socket: /run/mysqld/mysqld.sock
+## CHange password if needed
+- name: Set db password in zabbix config
+  lineinfile:
+    path: /etc/zabbix/zabbix_server.conf
+    line: DBPassword=zabbix
+## CHange timezone if needed
+- name: Set timezone settings
+  lineinfile:
+    path: /etc/zabbix/apache.conf
+    line: php_value date.timezone Europe/Amsterdam
+    insertbefore: </IfModule>
+## Native ansible unarchive not working, no tar.gz file
+- name: Unarchive zabbix DB schema
+  shell:
+    cmd: /usr/bin/gunzip /usr/share/zabbix-sql-scripts/mysql/server.sql.gz
+    chdir: /usr/share/zabbix-sql-scripts/mysql/
+- name: Set zabbix DB schema
+  mysql_db:
+    state: import
+    name: zabbix
+    target: /usr/share/zabbix-sql-scripts/mysql/server.sql
+- name: Restart and enable zabbix
+  systemd:
+    name: zabbix-server
+    state: restarted
+    enabled: yes
+- name: Restart and enable apache
+  systemd:
+    name: apache2
+    state: restarted
+    enabled: yes
