@@ -1,0 +1,40 @@
+---
+# Register filenames as var that need to be backed up (vmdk files without -flat, -000 and -ctk in name) 
+- name: Get VMDK filename
+  shell: |
+        ls {{folder}}*.vmdk | grep -E -v "\-flat|\-000|\-ctk"
+  register: filename
+# Register filenames as var that are configfiles
+- name: Get VMX filename (VM configfile)
+  shell: |
+        ls {{folder}}*.vmx
+  register: configfilename
+# Create backup folder with name of the VM
+- name: Create backup folder with vmname
+  shell: |
+        mkdir -p /vmfs/volumes/NFSSHARE/{{inventory_hostname}}/{{vmname}}
+
+# Debug, display vmdk files to backup
+- debug:
+    msg: "{{ fitem.rsplit('/', 1)[-1] }}"
+  with_items: "{{ filename.stdout_lines }}"
+  loop_control:
+    loop_var: fitem
+
+# Create vmdk backup to NFSSHARE
+- name: Create backup to NFSSHARE
+  shell: |
+        vmkfstools -i {{ fitem|quote }} /vmfs/volumes/NFSSHARE/{{inventory_hostname}}/{{vmname}}/{{ fitem.rsplit('/', 1)[-1] | replace(' ', '') | replace('(', '') | replace(')', '') }}
+  with_items: "{{ filename.stdout_lines }}"
+  ignore_errors: True
+  loop_control:
+    loop_var: fitem
+
+# Create backup of the configfile .vmx
+- name: Copy configfile to NFSSHARE
+  shell: |
+        cp {{ citem|quote }} /vmfs/volumes/NFSSHARE/{{inventory_hostname}}/{{vmname}}/{{ citem.rsplit('/', 1)[-1] | replace(' ', '') | replace('(', '') | replace(')', '') }}
+  with_items: "{{ configfilename.stdout_lines }}"
+  ignore_errors: True
+  loop_control:
+    loop_var: citem

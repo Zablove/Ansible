@@ -1,0 +1,91 @@
+---
+# tasks file for ESXi backup.
+# 
+# Remove old tempfiles before backup
+- name: Remove tempfiles
+  local_action:
+    module: file
+    path: /tmp/{{inventory_hostname}}_string.txt
+    state: absent
+- name: Remove tempfiles1
+  local_action:
+    module: file
+    path: /tmp/{{inventory_hostname}}_string1.txt
+    state: absent
+
+# Get host VMid, needed for snapthot (make sure that host has a tag BACKUP: YES )
+- name: Get host VMid
+  shell: |
+        /bin/vim-cmd vmsvc/getallvms | grep "BACKUP: YES"
+  register: vmid
+# Write vars to string
+- name: Write vars to {{inventory_hostname}}_string.txt
+  local_action: copy content={{ vmid.stdout }} dest=/tmp/{{inventory_hostname}}_string.txt
+# Parse file with Python to make it readable for Ansible
+- name: Parse python file
+  local_action:
+    module: shell
+    cmd: python /scripts/main.py /tmp/{{inventory_hostname}}_string.txt > /tmp/{{inventory_hostname}}_string1.txt
+
+# You can enable this pause to check before going on. However, this does not work when running with CRON!
+#- name: check string1 file correct
+#  pause:
+#    prompt: Change file if needed
+
+# Read the string1 file to get all VM's that need a backup
+- name: Read string file
+  local_action:
+    module: shell
+    cmd: cat /tmp/{{inventory_hostname}}_string1.txt
+  register: raw_config
+# Set output to list of vms
+- name: Set facts serverlist
+  set_fact: 
+    listvms: "{{ raw_config.stdout | from_yaml }}"
+# Debug output
+- name: Display servers
+  debug:
+    msg: "{{ item.Name }}"
+  with_items: "{{ listvms }}"
+
+# Check if machine has snapthot (in that case, no new snapshot is needed and snapthot don't need to be removed)
+- name: Check if machine has already snapshot
+  shell: |
+        /bin/vim-cmd vmsvc/get.snapshotinfo {{ item.VMID }} | grep SnapshotInfo || /bin/true
+  register: snapshotcheck
+  with_items: "{{ listvms }}"
+
+# Display debug information
+- name: VM Snapthot ID
+  debug: msg="{{ item.stdout }}"
+  with_items: "{{ snapshotcheck.results }}"
+  when: item.stdout is defined and item.stdout | length < 2
+
+# Debug output
+- name: Display snapthot details
+  debug:
+    msg: "VM ID to snapthot {{ item.item.VMID }} VM Name {{ item.item.Name }} Folder /vmfs/volumes/{{ item.item.SAN }}/{{ item.item.Folder }}"
+  with_items: "{{ snapshotcheck.results }}"
+  when: item.stdout is defined and item.stdout | length < 2
+
+# Create snapthot of VMid if no snapthot exists
+- name: Create snapthot of VM
+  shell: |
+        /bin/vim-cmd vmsvc/snapshot.create {{ item.item.VMID }} ansible-backup
+  when: item.stdout is defined and item.stdout | length < 2
+  with_items: "{{ snapshotcheck.results }}"
+
+
+# Create backup of VM and write to folder > This task runs export of all vmdks
+- name: Find volumes and create backup
+  include: exportvmdk.yml folder="/vmfs/volumes/{{ item.item.SAN }}/{{ item.item.Folder }}/" vmname="{{ item.item.Name }}"
+  with_items: "{{ snapshotcheck.results }}"
+
+# Step 9: Remove snapshot if created by ansible
+- name: Remove snapshot
+  shell: |
+        /bin/vim-cmd vmsvc/snapshot.removeall {{ item.item.VMID }}
+  when: item.stdout is defined and item.stdout | length < 2
+  with_items: "{{ snapshotcheck.results }}"
+
+
