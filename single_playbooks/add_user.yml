@@ -1,0 +1,22 @@
+#################################################################################
+# Create new user                                                               #
+# Run command:                                                                  #
+# ansible-playbook add_user.yml                                                 #
+#################################################################################
+---
+- hosts: all
+  become: yes
+  vars_prompt:
+    - name: Username
+      prompt: Username
+     private: no
+    - name: Password
+      prompt: Password
+      private: yes
+      encrypt: sha512_crypt
+      confirm: yes
+      salt_size: 7
+  tasks:
+    - name: Adding user {{ Username }}
+      user: name={{ Username }}
+            password={{ Password }}
